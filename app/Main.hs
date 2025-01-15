@@ -2,12 +2,12 @@ module Main where
 
 import System.Environment (getArgs)
 
-printChars :: String -> IO ()
-printChars "" = do
-  putChar 'x'
-printChars str = do
-  putChar (head str)
-  printChars (tail str)
+data ParsedArgs = ParsedArgs
+  { special :: String,
+    options :: [String],
+    files :: [String]
+  }
+  deriving (Show)
 
 countLines :: String -> Int
 countLines "" = 0
@@ -25,31 +25,66 @@ analyzeFile fileName = do
   putStrLn ("Word count: " ++ show wordCount)
   putStrLn ("Char count: " ++ show charCount)
 
-parseArgs :: [String] -> [String]
-parseArgs [] = []
-parseArgs (arg : args) = parseArg arg : parseArgs args
+parseArgs :: [String] -> ParsedArgs
+parseArgs [] = ParsedArgs {special = "", options = [], files = []}
+parseArgs (arg : args)
+  | arg == "--" = ParsedArgs {special = "", options = [], files = args} -- After "--", treat all further arguments as files
+  | head arg == '-' = do
+      let parsed = parseArgs args
 
-parseArg :: String -> String
-parseArg arg = do
-  case arg of
-    "--help" -> helpString
-    _ -> "smth else"
+      case arg of
+        "--help" -> ParsedArgs {special = "help", options = [], files = []}
+        "--version" -> ParsedArgs {special = "version", options = [], files = []}
+        "-" -> ParsedArgs {special = special parsed, options = options parsed, files = files parsed ++ ["-"]} -- Treat "-" as a file
+        "--bytes" -> ParsedArgs {special = special parsed, options = options parsed ++ ["bytes"], files = files parsed}
+        "--chars" -> ParsedArgs {special = special parsed, options = options parsed ++ ["chars"], files = files parsed}
+        "--lines" -> ParsedArgs {special = special parsed, options = options parsed ++ ["lines"], files = files parsed}
+        "--max-line-length" -> ParsedArgs {special = special parsed, options = options parsed ++ ["max-line-length"], files = files parsed}
+        "--words" -> ParsedArgs {special = special parsed, options = options parsed ++ ["words"], files = files parsed}
+        _ ->
+          if all (`elem` "cmlLw") (tail arg)
+            then parsed {options = options parsed ++ map parse (tail arg)}
+            else parsed {special = arg}
+          where
+            parse 'c' = "bytes"
+            parse 'm' = "chars"
+            parse 'l' = "lines"
+            parse 'L' = "max-line-length"
+            parse 'w' = "words"
+            parse _ = "unexpected"
+  | otherwise = do
+      let parsed = parseArgs args
+      ParsedArgs {special = special parsed, options = options parsed, files = files parsed ++ [arg]}
+
+analyzeFiles :: [String] -> [String] -> String
+analyzeFiles opts (file:files) = show opts
+analyzeFiles opts [] = show opts
 
 main :: IO ()
 main = do
-  let fileName = "test.txt"
+  -- let fileName = "test.txt"
+  -- analyzeFile fileName
 
   args <- getArgs
-  print (parseArgs args)
-  -- case args of
-  --   ["--help"] -> putStrLn helpString
-  --   [arg] -> putStrLn $ "Argument: " ++ arg
-  --   _ -> putStrLn "Invalid arguments"
+  let parsed = parseArgs args
+  case special parsed of
+    "help" -> putStrLn helpString
+    "version" -> putStrLn versionString
+    "" -> putStrLn $ analyzeFiles (options parsed) (files parsed)
+    _ -> putStrLn $ invalidString $ special parsed
 
-  analyzeFile fileName
-
-readInt :: String -> Int
-readInt = read
+invalidString :: String -> String
+invalidString option
+  | head (tail option) == '-' =
+      "wc: invalid option -- '"
+        ++ option
+        ++ "'\n"
+        ++ "Try 'wc --help' for more information."
+  | otherwise =
+      "wc: invalid option -- '"
+        ++ tail option
+        ++ "'\n"
+        ++ "Try 'wc --help' for more information."
 
 helpString :: String
 helpString =
@@ -67,7 +102,13 @@ helpString =
     ++ "  -l, --lines            print the newline counts\n"
     ++ "  -L, --max-line-length  print the maximum display width\n"
     ++ "  -w, --words            print the word counts\n"
-    ++ "      --total=WHEN       when to print a line with total counts;\n"
-    ++ "                           WHEN can be: auto, always, only, never\n"
     ++ "      --help        display this help and exit\n"
     ++ "      --version     output version information and exit"
+
+versionString :: String
+versionString =
+  "wc\n"
+    ++ "Copyright (C) 2025 Oskar Meyenburg.\n"
+    ++ "License GPLv3+: GNU GPL version 3 or later <https://gnu.org/licenses/gpl.html>.\n"
+    ++ "This is free software: you are free to change and redistribute it.\n"
+    ++ "There is NO WARRANTY, to the extent permitted by law."
