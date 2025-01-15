@@ -1,11 +1,9 @@
 module Main where
 
-import System.Environment (getArgs)
--- import qualified Data.ByteString.UTF8 as BSU
-
+import qualified Data.ByteString as B
 import qualified Data.Text as T
 import qualified Data.Text.Encoding as TE
-import qualified Data.ByteString as B
+import System.Environment (getArgs)
 
 data ParsedArgs = ParsedArgs
   { special :: String,
@@ -21,27 +19,30 @@ data ParsedFile = ParsedFile
   }
   deriving (Show)
 
+contains :: [String] -> String -> Bool
+contains [] _ = False
+contains (x : xs) value = (x == value) || contains xs value
+
 countLines :: String -> Int
 countLines "" = 0
 countLines str = (if head str == '\n' then 1 else 0) + countLines (tail str)
 
 countBytes :: String -> Int
 countBytes str =
-    let text = T.pack str  -- Convert String to Text
-        utf8Bytes = TE.encodeUtf8 text  -- Encode Text to ByteString in UTF-8
-    in B.length utf8Bytes  -- Get the length of the ByteString
+  let text = T.pack str -- Convert String to Text
+      utf8Bytes = TE.encodeUtf8 text -- Encode Text to ByteString in UTF-8
+   in B.length utf8Bytes -- Get the length of the ByteString
 
 analyzeFile :: [String] -> String -> IO ParsedFile
 analyzeFile opts file = do
-  content <- readFile file
-  let lineCount = length $ lines content
-      charCount = length content
-      wordCount = length $ words content
-      -- bytesCount = BSU.length $ BSU.fromString content
-      bytesCount = countBytes content
-      stats = [lineCount, charCount, wordCount, bytesCount]
-      maxWidth = maximum $ map (floor . logBase 10 . fromIntegral) stats
-  return ParsedFile {name = file, stats = stats, maxWidth = maxWidth}
+  content <- if null file then getContents else readFile file
+  let lineCount = [length $ lines content | contains opts "lines"]
+      charCount = [length content | contains opts "chars"]
+      wordCount = [length $ words content | contains opts "words"]
+      bytesCount = [countBytes content | contains opts "bytes"]
+      fileStats = lineCount ++ charCount ++ wordCount ++ bytesCount
+      width = ceiling . logBase 10 . fromIntegral $ if maximum fileStats > 0 then maximum fileStats + 1 else 2
+  return ParsedFile {name = file, stats = fileStats, maxWidth = width}
 
 parseArgs :: [String] -> ParsedArgs
 parseArgs [] = ParsedArgs {special = "", options = [], files = []}
@@ -75,31 +76,23 @@ parseArgs (arg : args)
       ParsedArgs {special = special parsed, options = options parsed, files = files parsed ++ [arg]}
 
 analyzeFiles :: [String] -> [String] -> IO [ParsedFile]
-analyzeFiles opts (file : files) = do
-  result <- analyzeFile opts file
-  others <- analyzeFiles opts files
+analyzeFiles opts (x : xs) = do
+  result <- analyzeFile opts x
+  others <- analyzeFiles opts xs
   return (result : others)
 analyzeFiles _ [] = return []
 
--- analyzeFiles :: [String] -> [String] -> IO String
--- analyzeFiles opts (file : files) = do
---   result <- analyzeFile file
---   others <- analyzeFiles files
---   return result ++ "\n" ++ others
--- analyzeFiles _ [] = return ""
-
 main :: IO ()
 main = do
-  -- let fileName = "test.txt"
-  -- analyzeFile fileName
-
   args <- getArgs
   let parsed = parseArgs args
+      opts = if options parsed /= [] then options parsed else ["lines", "words", "bytes"]
+      fileList = if files parsed /= [] then files parsed else [""]
   case special parsed of
     "help" -> putStrLn helpString
     "version" -> putStrLn versionString
     "" -> do
-      result <- analyzeFiles (options parsed) (files parsed)
+      result <- analyzeFiles opts fileList
       putStr $ show result
     _ -> putStrLn $ invalidString $ special parsed
 
