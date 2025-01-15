@@ -1,6 +1,11 @@
 module Main where
 
 import System.Environment (getArgs)
+-- import qualified Data.ByteString.UTF8 as BSU
+
+import qualified Data.Text as T
+import qualified Data.Text.Encoding as TE
+import qualified Data.ByteString as B
 
 data ParsedArgs = ParsedArgs
   { special :: String,
@@ -9,21 +14,34 @@ data ParsedArgs = ParsedArgs
   }
   deriving (Show)
 
+data ParsedFile = ParsedFile
+  { name :: String,
+    stats :: [Int],
+    maxWidth :: Int
+  }
+  deriving (Show)
+
 countLines :: String -> Int
 countLines "" = 0
 countLines str = (if head str == '\n' then 1 else 0) + countLines (tail str)
 
-analyzeFile :: String -> IO ()
-analyzeFile fileName = do
-  content <- readFile fileName
-  let charCount = length content
-      wordCount = length $ words content
-      lineCount = countLines content
+countBytes :: String -> Int
+countBytes str =
+    let text = T.pack str  -- Convert String to Text
+        utf8Bytes = TE.encodeUtf8 text  -- Encode Text to ByteString in UTF-8
+    in B.length utf8Bytes  -- Get the length of the ByteString
 
-  -- 3  6 16 test.txt
-  putStrLn ("Line count: " ++ show lineCount)
-  putStrLn ("Word count: " ++ show wordCount)
-  putStrLn ("Char count: " ++ show charCount)
+analyzeFile :: [String] -> String -> IO ParsedFile
+analyzeFile opts file = do
+  content <- readFile file
+  let lineCount = length $ lines content
+      charCount = length content
+      wordCount = length $ words content
+      -- bytesCount = BSU.length $ BSU.fromString content
+      bytesCount = countBytes content
+      stats = [lineCount, charCount, wordCount, bytesCount]
+      maxWidth = maximum $ map (floor . logBase 10 . fromIntegral) stats
+  return ParsedFile {name = file, stats = stats, maxWidth = maxWidth}
 
 parseArgs :: [String] -> ParsedArgs
 parseArgs [] = ParsedArgs {special = "", options = [], files = []}
@@ -56,9 +74,19 @@ parseArgs (arg : args)
       let parsed = parseArgs args
       ParsedArgs {special = special parsed, options = options parsed, files = files parsed ++ [arg]}
 
-analyzeFiles :: [String] -> [String] -> String
-analyzeFiles opts (file:files) = show opts
-analyzeFiles opts [] = show opts
+analyzeFiles :: [String] -> [String] -> IO [ParsedFile]
+analyzeFiles opts (file : files) = do
+  result <- analyzeFile opts file
+  others <- analyzeFiles opts files
+  return (result : others)
+analyzeFiles _ [] = return []
+
+-- analyzeFiles :: [String] -> [String] -> IO String
+-- analyzeFiles opts (file : files) = do
+--   result <- analyzeFile file
+--   others <- analyzeFiles files
+--   return result ++ "\n" ++ others
+-- analyzeFiles _ [] = return ""
 
 main :: IO ()
 main = do
@@ -70,7 +98,9 @@ main = do
   case special parsed of
     "help" -> putStrLn helpString
     "version" -> putStrLn versionString
-    "" -> putStrLn $ analyzeFiles (options parsed) (files parsed)
+    "" -> do
+      result <- analyzeFiles (options parsed) (files parsed)
+      putStr $ show result
     _ -> putStrLn $ invalidString $ special parsed
 
 invalidString :: String -> String
