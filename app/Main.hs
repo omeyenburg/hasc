@@ -45,6 +45,12 @@ countBytes str =
       utf8Bytes = TE.encodeUtf8 text -- Encode Text to ByteString in UTF-8
    in B.length utf8Bytes -- Get the length of the ByteString
 
+getMaxLineLength :: Int -> Int -> String -> Int
+getMaxLineLength m s str
+  | null str = max m s
+  | head str == '\n' = getMaxLineLength (max m s) 0 $ tail str
+  | otherwise = getMaxLineLength (max m (s + 1)) (s + 1) $ tail str
+
 getNumberWidth :: Int -> Int
 getNumberWidth num = do
   let numStr = show num
@@ -57,19 +63,21 @@ analyzeFile opts file = do
     then do
       content <- if null file then getContents else readFile file
       let lineCount = [length $ lines content | contains opts "lines"]
-          charCount = [length content | contains opts "chars"]
           wordCount = [length $ words content | contains opts "words"]
+          charCount = [length content | contains opts "chars"]
           byteCount = [countBytes content | contains opts "bytes"]
-          fileStats = lineCount ++ charCount ++ wordCount ++ byteCount
+          maxLineLength = [getMaxLineLength 0 0 content | contains opts "max-line-length"]
+          fileStats = lineCount ++ wordCount ++ charCount ++ byteCount ++ maxLineLength
           width = getNumberWidth $ maximum fileStats + 1
       return ParsedFile {name = file, stats = fileStats, maxWidth = if null file then max width 7 else width, exists = fileExists}
     else do
       validDirectory <- doesDirectoryExist file
       let lineCount = [0 | contains opts "lines"]
-          charCount = [0 | contains opts "chars"]
           wordCount = [0 | contains opts "words"]
+          charCount = [0 | contains opts "chars"]
           byteCount = [0 | contains opts "bytes"]
-          fileStats = lineCount ++ charCount ++ wordCount ++ byteCount
+          maxLineLength = [0 | contains opts "max-line-length"]
+          fileStats = lineCount ++ wordCount ++ charCount ++ byteCount ++ maxLineLength
       return ParsedFile {name = file, stats = fileStats, maxWidth = if validDirectory then 7 else 0, exists = if validDirectory then directoryExists else fileMissing}
 
 parseArgs :: [String] -> ParsedArgs
@@ -158,10 +166,11 @@ outputFiles parsed = do
   outputFile parsed $ head total
 
   -- Only output the total if more than one file is parsed
-  Control.Monad.when (length parsed > 1)    $ outputNumber (tail total) (head total) >> putStr "total"
-  -- if length parsed > 1
-  --   then outputNumber (tail total) (head total) >> putStr "total"
-  --   else return ()
+  Control.Monad.when (length parsed > 1) $ outputNumber (tail total) (head total) >> putStr "total"
+
+-- if length parsed > 1
+--   then outputNumber (tail total) (head total) >> putStr "total"
+--   else return ()
 
 main :: IO ()
 main = do
