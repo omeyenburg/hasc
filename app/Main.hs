@@ -1,8 +1,10 @@
 module Main where
 
+import Control.Monad
 import qualified Data.ByteString as B
 import qualified Data.Text as T
 import qualified Data.Text.Encoding as TE
+import System.Directory (doesDirectoryExist, doesFileExist)
 import System.Environment (getArgs)
 
 data ParsedArgs = ParsedArgs
@@ -15,9 +17,19 @@ data ParsedArgs = ParsedArgs
 data ParsedFile = ParsedFile
   { name :: String,
     stats :: [Int],
-    maxWidth :: Int
+    maxWidth :: Int,
+    exists :: Int
   }
   deriving (Show)
+
+fileExists :: Int
+fileExists = 0
+
+directoryExists :: Int
+directoryExists = 1
+
+fileMissing :: Int
+fileMissing = 2
 
 contains :: [String] -> String -> Bool
 contains [] _ = False
@@ -33,16 +45,32 @@ countBytes str =
       utf8Bytes = TE.encodeUtf8 text -- Encode Text to ByteString in UTF-8
    in B.length utf8Bytes -- Get the length of the ByteString
 
+getNumberWidth :: Int -> Int
+getNumberWidth num = do
+  let numStr = show num
+  length numStr
+
 analyzeFile :: [String] -> String -> IO ParsedFile
 analyzeFile opts file = do
-  content <- if null file then getContents else readFile file
-  let lineCount = [length $ lines content | contains opts "lines"]
-      charCount = [length content | contains opts "chars"]
-      wordCount = [length $ words content | contains opts "words"]
-      bytesCount = [countBytes content | contains opts "bytes"]
-      fileStats = lineCount ++ charCount ++ wordCount ++ bytesCount
-      width = ceiling . logBase 10 . fromIntegral $ if maximum fileStats > 0 then maximum fileStats + 1 else 2
-  return ParsedFile {name = file, stats = fileStats, maxWidth = width}
+  validFile <- doesFileExist file
+  if null file || validFile
+    then do
+      content <- if null file then getContents else readFile file
+      let lineCount = [length $ lines content | contains opts "lines"]
+          charCount = [length content | contains opts "chars"]
+          wordCount = [length $ words content | contains opts "words"]
+          byteCount = [countBytes content | contains opts "bytes"]
+          fileStats = lineCount ++ charCount ++ wordCount ++ byteCount
+          width = getNumberWidth $ maximum fileStats + 1
+      return ParsedFile {name = file, stats = fileStats, maxWidth = if null file then max width 7 else width, exists = fileExists}
+    else do
+      validDirectory <- doesDirectoryExist file
+      let lineCount = [0 | contains opts "lines"]
+          charCount = [0 | contains opts "chars"]
+          wordCount = [0 | contains opts "words"]
+          byteCount = [0 | contains opts "bytes"]
+          fileStats = lineCount ++ charCount ++ wordCount ++ byteCount
+      return ParsedFile {name = file, stats = fileStats, maxWidth = if validDirectory then 7 else 0, exists = if validDirectory then directoryExists else fileMissing}
 
 parseArgs :: [String] -> ParsedArgs
 parseArgs [] = ParsedArgs {special = "", options = [], files = []}
@@ -82,6 +110,59 @@ analyzeFiles opts (x : xs) = do
   return (result : others)
 analyzeFiles _ [] = return []
 
+addLists :: [Int] -> [Int] -> [Int]
+addLists [] y = y
+addLists x [] = x
+addLists (x : xs) (y : ys) = x + y : addLists xs ys
+
+outputNumber :: [Int] -> Int -> IO ()
+outputNumber [] _ = return ()
+outputNumber (num : others) width = do
+  let numStr = show num
+      padding = replicate (width - length numStr) ' '
+  putStr (padding ++ numStr ++ " ")
+  outputNumber others width
+
+outputFile :: [ParsedFile] -> Int -> IO ()
+outputFile [] _ = return ()
+outputFile (parsed : others) width = do
+  outputFile others width
+  if exists parsed == fileExists
+    then do
+      outputNumber (stats parsed) width
+      putStrLn $ name parsed
+    else
+      if exists parsed == directoryExists
+        then do
+          outputNumber (stats parsed) width
+          putStrLn $ name parsed
+          putStrLn ("wc: " ++ name parsed ++ ": Is a directory")
+        else do
+          putStrLn ("wc: " ++ name parsed ++ ": No such file or directory")
+
+outputFiles :: [ParsedFile] -> IO ()
+outputFiles parsed = do
+  let initialAcc = [0] -- Adjust based on your actual needs
+  let total =
+        foldl
+          ( \acc file ->
+              let maxVal = max (head acc) (maxWidth file)
+                  newStats = addLists (stats file) (tail acc)
+               in maxVal : newStats
+          )
+          initialAcc
+          parsed
+
+  -- Max width is saved in head total, to
+  -- simplify proccessing with one recursive function
+  outputFile parsed $ head total
+
+  -- Only output the total if more than one file is parsed
+  Control.Monad.when (length parsed > 1)    $ outputNumber (tail total) (head total) >> putStr "total"
+  -- if length parsed > 1
+  --   then outputNumber (tail total) (head total) >> putStr "total"
+  --   else return ()
+
 main :: IO ()
 main = do
   args <- getArgs
@@ -93,7 +174,7 @@ main = do
     "version" -> putStrLn versionString
     "" -> do
       result <- analyzeFiles opts fileList
-      putStr $ show result
+      outputFiles result
     _ -> putStrLn $ invalidString $ special parsed
 
 invalidString :: String -> String
