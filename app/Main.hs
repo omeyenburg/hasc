@@ -8,28 +8,32 @@ import System.Directory (doesDirectoryExist, doesFileExist)
 import System.Environment (getArgs)
 
 data ParsedArgs = ParsedArgs
-  { special :: String,
-    options :: [String],
-    files :: [String]
+  { argSpecial :: String,
+    argOptions :: [String],
+    argFiles :: [String]
   }
   deriving (Show)
 
 data ParsedFile = ParsedFile
-  { name :: String,
-    stats :: [Int],
-    maxWidth :: Int,
-    exists :: Int
+  { fileName :: String,
+    fileLines :: Int,
+    fileWords :: Int,
+    fileChars :: Int,
+    fileBytes :: Int,
+    fileMaxLineLength :: Int,
+    fileMaxWidth :: Int,
+    fileFlag :: Int
   }
   deriving (Show)
 
-fileExists :: Int
-fileExists = 0
+fileExistsFlag :: Int
+fileExistsFlag = 0
 
-directoryExists :: Int
-directoryExists = 1
+directoryExistsFlag :: Int
+directoryExistsFlag = 1
 
-fileMissing :: Int
-fileMissing = 2
+fileMissingFlag :: Int
+fileMissingFlag = 2
 
 contains :: [String] -> String -> Bool
 contains [] _ = False
@@ -62,44 +66,58 @@ analyzeFile opts file = do
   if null file || validFile
     then do
       content <- if null file then getContents else readFile file
-      let lineCount = [length $ lines content | contains opts "lines"]
-          wordCount = [length $ words content | contains opts "words"]
-          charCount = [length content | contains opts "chars"]
-          byteCount = [countBytes content | contains opts "bytes"]
-          maxLineLength = [getMaxLineLength 0 0 content | contains opts "max-line-length"]
-          fileStats = lineCount ++ wordCount ++ charCount ++ byteCount ++ maxLineLength
+      let lineCount = length $ lines content
+          wordCount = length $ words content
+          charCount = length content
+          byteCount = countBytes content
+          maxLineLength = getMaxLineLength 0 0 content
+          fileStats = [lineCount | contains opts "lines"] ++ [wordCount | contains opts "words"] ++ [charCount | contains opts "chars"] ++ [byteCount | contains opts "bytes"] ++ [maxLineLength | contains opts "max-line-length"]
           width = getNumberWidth $ maximum fileStats + 1
-      return ParsedFile {name = file, stats = fileStats, maxWidth = if null file then max width 7 else width, exists = fileExists}
+      return
+        ParsedFile
+          { fileName = file,
+            fileLines = lineCount,
+            fileWords = wordCount,
+            fileChars = charCount,
+            fileBytes = byteCount,
+            fileMaxLineLength = maxLineLength,
+            fileMaxWidth = if null file then max width 7 else width,
+            fileFlag = fileExistsFlag
+          }
     else do
       validDirectory <- doesDirectoryExist file
-      let lineCount = [0 | contains opts "lines"]
-          wordCount = [0 | contains opts "words"]
-          charCount = [0 | contains opts "chars"]
-          byteCount = [0 | contains opts "bytes"]
-          maxLineLength = [0 | contains opts "max-line-length"]
-          fileStats = lineCount ++ wordCount ++ charCount ++ byteCount ++ maxLineLength
-      return ParsedFile {name = file, stats = fileStats, maxWidth = if validDirectory then 7 else 0, exists = if validDirectory then directoryExists else fileMissing}
+      return
+        ParsedFile
+          { fileName = file,
+            fileLines = 0,
+            fileWords = 0,
+            fileChars = 0,
+            fileBytes = 0,
+            fileMaxLineLength = 0,
+            fileMaxWidth = if validDirectory then 7 else 1,
+            fileFlag = if validDirectory then directoryExistsFlag else fileMissingFlag
+          }
 
 parseArgs :: [String] -> ParsedArgs
-parseArgs [] = ParsedArgs {special = "", options = [], files = []}
+parseArgs [] = ParsedArgs {argSpecial = "", argOptions = [], argFiles = []}
 parseArgs (arg : args)
-  | arg == "--" = ParsedArgs {special = "", options = [], files = args} -- After "--", treat all further arguments as files
+  | arg == "--" = ParsedArgs {argSpecial = "", argOptions = [], argFiles = args} -- After "--", treat all further arguments as files
   | head arg == '-' = do
       let parsed = parseArgs args
 
       case arg of
-        "--help" -> ParsedArgs {special = "help", options = [], files = []}
-        "--version" -> ParsedArgs {special = "version", options = [], files = []}
-        "-" -> ParsedArgs {special = special parsed, options = options parsed, files = files parsed ++ ["-"]} -- Treat "-" as a file
-        "--bytes" -> ParsedArgs {special = special parsed, options = options parsed ++ ["bytes"], files = files parsed}
-        "--chars" -> ParsedArgs {special = special parsed, options = options parsed ++ ["chars"], files = files parsed}
-        "--lines" -> ParsedArgs {special = special parsed, options = options parsed ++ ["lines"], files = files parsed}
-        "--max-line-length" -> ParsedArgs {special = special parsed, options = options parsed ++ ["max-line-length"], files = files parsed}
-        "--words" -> ParsedArgs {special = special parsed, options = options parsed ++ ["words"], files = files parsed}
+        "--help" -> ParsedArgs {argSpecial = "help", argOptions = [], argFiles = []}
+        "--version" -> ParsedArgs {argSpecial = "version", argOptions = [], argFiles = []}
+        "-" -> ParsedArgs {argSpecial = argSpecial parsed, argOptions = argOptions parsed, argFiles = argFiles parsed ++ ["-"]} -- Treat "-" as a file
+        "--bytes" -> ParsedArgs {argSpecial = argSpecial parsed, argOptions = argOptions parsed ++ ["bytes"], argFiles = argFiles parsed}
+        "--chars" -> ParsedArgs {argSpecial = argSpecial parsed, argOptions = argOptions parsed ++ ["chars"], argFiles = argFiles parsed}
+        "--lines" -> ParsedArgs {argSpecial = argSpecial parsed, argOptions = argOptions parsed ++ ["lines"], argFiles = argFiles parsed}
+        "--max-line-length" -> ParsedArgs {argSpecial = argSpecial parsed, argOptions = argOptions parsed ++ ["max-line-length"], argFiles = argFiles parsed}
+        "--words" -> ParsedArgs {argSpecial = argSpecial parsed, argOptions = argOptions parsed ++ ["words"], argFiles = argFiles parsed}
         _ ->
           if all (`elem` "cmlLw") (tail arg)
-            then parsed {options = options parsed ++ map parse (tail arg)}
-            else parsed {special = arg}
+            then parsed {argOptions = argOptions parsed ++ map parse (tail arg)}
+            else parsed {argSpecial = arg}
           where
             parse 'c' = "bytes"
             parse 'm' = "chars"
@@ -109,7 +127,7 @@ parseArgs (arg : args)
             parse _ = "unexpected"
   | otherwise = do
       let parsed = parseArgs args
-      ParsedArgs {special = special parsed, options = options parsed, files = files parsed ++ [arg]}
+      ParsedArgs {argSpecial = argSpecial parsed, argOptions = argOptions parsed, argFiles = argFiles parsed ++ [arg]}
 
 analyzeFiles :: [String] -> [String] -> IO [ParsedFile]
 analyzeFiles opts (x : xs) = do
@@ -123,68 +141,76 @@ addLists [] y = y
 addLists x [] = x
 addLists (x : xs) (y : ys) = x + y : addLists xs ys
 
-outputNumber :: [Int] -> Int -> IO ()
-outputNumber [] _ = return ()
-outputNumber (num : others) width = do
+outputNumber :: Int -> Int -> IO ()
+outputNumber num width = do
   let numStr = show num
       padding = replicate (width - length numStr) ' '
   putStr (padding ++ numStr ++ " ")
-  outputNumber others width
 
-outputFile :: [ParsedFile] -> Int -> IO ()
-outputFile [] _ = return ()
-outputFile (parsed : others) width = do
-  outputFile others width
-  if exists parsed == fileExists
+outputFile :: [String] -> [ParsedFile] -> Int -> IO ()
+outputFile _ [] _ = return ()
+outputFile opts (parsed : others) width = do
+  outputFile opts others width
+  if fileFlag parsed == fileExistsFlag
     then do
-      outputNumber (stats parsed) width
-      putStrLn $ name parsed
+      Control.Monad.when (contains opts "lines") $ outputNumber (fileLines parsed) width
+      Control.Monad.when (contains opts "words") $ outputNumber (fileWords parsed) width
+      Control.Monad.when (contains opts "chars") $ outputNumber (fileChars parsed) width
+      Control.Monad.when (contains opts "bytes") $ outputNumber (fileBytes parsed) width
+      Control.Monad.when (contains opts "max-line-length") $ outputNumber (fileMaxLineLength parsed) width
+      putStrLn $ fileName parsed
     else
-      if exists parsed == directoryExists
+      if fileFlag parsed == directoryExistsFlag
         then do
-          outputNumber (stats parsed) width
-          putStrLn $ name parsed
-          putStrLn ("wc: " ++ name parsed ++ ": Is a directory")
+          Control.Monad.when (contains opts "lines") $ outputNumber (fileLines parsed) width
+          Control.Monad.when (contains opts "words") $ outputNumber (fileWords parsed) width
+          Control.Monad.when (contains opts "chars") $ outputNumber (fileChars parsed) width
+          Control.Monad.when (contains opts "bytes") $ outputNumber (fileBytes parsed) width
+          Control.Monad.when (contains opts "max-line-length") $ outputNumber (fileMaxLineLength parsed) width
+          putStrLn $ fileName parsed
+          putStrLn ("wc: " ++ fileName parsed ++ ": Is a directory")
         else do
-          putStrLn ("wc: " ++ name parsed ++ ": No such file or directory")
+          putStrLn ("wc: " ++ fileName parsed ++ ": No such file or directory")
 
-outputFiles :: [ParsedFile] -> IO ()
-outputFiles parsed = do
-  let initialAcc = [0] -- Adjust based on your actual needs
+outputFiles :: [String] -> [ParsedFile] -> IO ()
+outputFiles opts parsed = do
   let total =
-        foldl
+        foldl1
           ( \acc file ->
-              let maxVal = max (head acc) (maxWidth file)
-                  newStats = addLists (stats file) (tail acc)
-               in maxVal : newStats
+              acc
+                {
+                  fileName = "total",
+                  fileLines = fileLines acc + fileLines file,
+                  fileWords = fileWords acc + fileWords file,
+                  fileChars = fileChars acc + fileChars file,
+                  fileBytes = fileBytes acc + fileBytes file,
+                  fileMaxLineLength = max (fileMaxLineLength acc) (fileMaxLineLength file),
+                  fileMaxWidth = max (fileMaxWidth acc) (fileMaxWidth file),
+                  fileFlag = fileExistsFlag
+                }
           )
-          initialAcc
           parsed
 
   -- Max width is saved in head total, to
   -- simplify proccessing with one recursive function
-  outputFile parsed $ head total
+  outputFile opts parsed $ fileMaxWidth total
 
   -- Only output the total if more than one file is parsed
-  Control.Monad.when (length parsed > 1) $ outputNumber (tail total) (head total) >> putStr "total"
-
--- if length parsed > 1
---   then outputNumber (tail total) (head total) >> putStr "total"
---   else return ()
+  Control.Monad.when (length parsed > 1) $ outputFile opts [total] $ fileMaxWidth total
 
 main :: IO ()
 main = do
   args <- getArgs
   let parsed = parseArgs args
-      opts = if options parsed /= [] then options parsed else ["lines", "words", "bytes"]
-      fileList = if files parsed /= [] then files parsed else [""]
-  case special parsed of
+      opts = if argOptions parsed /= [] then argOptions parsed else ["lines", "words", "bytes"]
+      fileList = if argFiles parsed /= [] then argFiles parsed else [""]
+  case argSpecial parsed of
     "help" -> putStrLn helpString
     "version" -> putStrLn versionString
     "" -> do
       result <- analyzeFiles opts fileList
-      outputFiles result
-    _ -> putStrLn $ invalidString $ special parsed
+      outputFiles opts result
+    _ -> putStrLn $ invalidString $ argSpecial parsed
 
 invalidString :: String -> String
 invalidString option
