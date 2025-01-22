@@ -1,11 +1,12 @@
 module Main where
 
-import Control.Monad
-import qualified Data.ByteString as B
-import qualified Data.Text as T
-import qualified Data.Text.Encoding as TE
+import Control.Monad (when)
+import Data.Char.WCWidth (wcwidth)
 import System.Directory (doesDirectoryExist, doesFileExist)
 import System.Environment (getArgs)
+import qualified Data.ByteString as ByteString
+import qualified Data.Text as Text
+import qualified Data.Text.Encoding as Encoding
 
 data ParsedArgs = ParsedArgs
   { argSpecial :: String,
@@ -45,15 +46,15 @@ countLines str = (if head str == '\n' then 1 else 0) + countLines (tail str)
 
 countBytes :: String -> Int
 countBytes str =
-  let text = T.pack str -- Convert String to Text
-      utf8Bytes = TE.encodeUtf8 text -- Encode Text to ByteString in UTF-8
-   in B.length utf8Bytes -- Get the length of the ByteString
+  let text = Text.pack str -- Convert String to Text
+      utf8Bytes = Encoding.encodeUtf8 text -- Encode Text to ByteString in UTF-8
+   in ByteString.length utf8Bytes -- Get the length of the ByteString
 
 getMaxLineLength :: Int -> Int -> String -> Int
 getMaxLineLength m s str
   | null str = max m s
   | head str == '\n' = getMaxLineLength (max m s) 0 $ tail str
-  | otherwise = getMaxLineLength (max m (s + 1)) (s + 1) $ tail str
+  | otherwise = getMaxLineLength (max m (s + wcwidth (head str))) (s + wcwidth (head str)) (tail str)
 
 getNumberWidth :: Int -> Int
 getNumberWidth num = do
@@ -153,20 +154,20 @@ outputFile opts (parsed : others) width = do
   outputFile opts others width
   if fileFlag parsed == fileExistsFlag
     then do
-      Control.Monad.when (contains opts "lines") $ outputNumber (fileLines parsed) width
-      Control.Monad.when (contains opts "words") $ outputNumber (fileWords parsed) width
-      Control.Monad.when (contains opts "chars") $ outputNumber (fileChars parsed) width
-      Control.Monad.when (contains opts "bytes") $ outputNumber (fileBytes parsed) width
-      Control.Monad.when (contains opts "max-line-length") $ outputNumber (fileMaxLineLength parsed) width
+      when (contains opts "lines") $ outputNumber (fileLines parsed) width
+      when (contains opts "words") $ outputNumber (fileWords parsed) width
+      when (contains opts "chars") $ outputNumber (fileChars parsed) width
+      when (contains opts "bytes") $ outputNumber (fileBytes parsed) width
+      when (contains opts "max-line-length") $ outputNumber (fileMaxLineLength parsed) width
       putStrLn $ fileName parsed
     else
       if fileFlag parsed == directoryExistsFlag
         then do
-          Control.Monad.when (contains opts "lines") $ outputNumber (fileLines parsed) width
-          Control.Monad.when (contains opts "words") $ outputNumber (fileWords parsed) width
-          Control.Monad.when (contains opts "chars") $ outputNumber (fileChars parsed) width
-          Control.Monad.when (contains opts "bytes") $ outputNumber (fileBytes parsed) width
-          Control.Monad.when (contains opts "max-line-length") $ outputNumber (fileMaxLineLength parsed) width
+          when (contains opts "lines") $ outputNumber (fileLines parsed) width
+          when (contains opts "words") $ outputNumber (fileWords parsed) width
+          when (contains opts "chars") $ outputNumber (fileChars parsed) width
+          when (contains opts "bytes") $ outputNumber (fileBytes parsed) width
+          when (contains opts "max-line-length") $ outputNumber (fileMaxLineLength parsed) width
           putStrLn $ fileName parsed
           putStrLn ("wc: " ++ fileName parsed ++ ": Is a directory")
         else do
@@ -196,7 +197,7 @@ outputFiles opts parsed = do
   outputFile opts parsed $ fileMaxWidth total
 
   -- Only output the total if more than one file is parsed
-  Control.Monad.when (length parsed > 1) $ outputFile opts [total] $ fileMaxWidth total
+  when (length parsed > 1) $ outputFile opts [total] $ fileMaxWidth total
 
 main :: IO ()
 main = do
