@@ -23,7 +23,7 @@ name:               wc
 version:            0.1.0.0
 
 -- A short (one-line) description of the package.
--- synopsis:
+-- synopsis: Simple rewrite of the linux wc utility.
 
 -- A longer description of the package.
 -- description:
@@ -38,7 +38,7 @@ license-file:       LICENSE
 author:             omeyemburg
 
 -- An email address to which users can send suggestions, bug reports, and patches.
-maintainer:         135001586+omeyenburg@users.noreply.github.com
+maintainer:         oskar.git@gmx.net
 
 -- A copyright notice.
 -- copyright:
@@ -67,7 +67,7 @@ executable wc
     -- other-extensions:
 
     -- Other library packages from which modules are imported.
-    build-depends:    base ^>=4.18.2.1, bytestring, text, directory, wcwidth
+    build-depends:    base >=4.18.2.1, bytestring, text, directory, wcwidth
 
     -- Directories containing source files.
     hs-source-dirs:   app
